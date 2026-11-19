@@ -42,6 +42,12 @@ class Business(db.Model):
         cascade="all, delete-orphan"
     )
 
+    leads = db.relationship(
+        "Lead",
+        back_populates="business",
+        cascade="all, delete-orphan"
+    )
+
 
 class Chatbot(db.Model):
     __tablename__ = "chatbots"
@@ -56,6 +62,13 @@ class Chatbot(db.Model):
 
     description = db.Column(db.Text)
     is_active = db.Column(db.Boolean, default=True)
+
+    # NEW: Custom chatbot theme colour
+    theme_color = db.Column(
+        db.String(20),
+        nullable=False,
+        default="#173D32"
+    )
 
     business_id = db.Column(
         db.Integer,
@@ -75,6 +88,12 @@ class Chatbot(db.Model):
 
     conversations = db.relationship(
         "Conversation",
+        back_populates="chatbot",
+        cascade="all, delete-orphan"
+    )
+
+    leads = db.relationship(
+        "Lead",
         back_populates="chatbot",
         cascade="all, delete-orphan"
     )
@@ -158,6 +177,11 @@ class Conversation(db.Model):
         order_by="Message.created_at"
     )
 
+    leads = db.relationship(
+        "Lead",
+        back_populates="conversation"
+    )
+
 
 class Message(db.Model):
     __tablename__ = "messages"
@@ -177,4 +201,68 @@ class Message(db.Model):
     conversation = db.relationship(
         "Conversation",
         back_populates="messages"
+    )
+
+
+class Lead(db.Model):
+    __tablename__ = "leads"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    customer_name = db.Column(db.String(120), nullable=False)
+    phone = db.Column(db.String(30), nullable=False)
+    email = db.Column(db.String(150))
+    enquiry = db.Column(db.Text, nullable=False)
+
+    consent_given = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False
+    )
+
+    status = db.Column(
+        db.String(30),
+        nullable=False,
+        default="New"
+    )
+
+    business_id = db.Column(
+        db.Integer,
+        db.ForeignKey("businesses.id"),
+        nullable=False
+    )
+
+    chatbot_id = db.Column(
+        db.Integer,
+        db.ForeignKey("chatbots.id"),
+        nullable=False
+    )
+
+    conversation_id = db.Column(
+        db.Integer,
+        db.ForeignKey("conversations.id"),
+        nullable=True
+    )
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow
+    )
+
+    business = db.relationship(
+        "Business",
+        back_populates="leads"
+    )
+
+    chatbot = db.relationship(
+        "Chatbot",
+        back_populates="leads"
+    )
+
+    conversation = db.relationship(
+        "Conversation",
+        back_populates="leads"
     )

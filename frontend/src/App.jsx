@@ -1,12 +1,16 @@
 import { useState, useEffect } from "react";
 import { API } from "./api";
 import ChatWidget from "./components/ChatWidget";
+import PublicChatPage from "./components/PublicChatPage";
+import ChatbotShare from "./components/ChatbotShare";
+import AnalyticsDashboard from "./components/AnalyticsDashboard";
+import ConversationHistory from "./components/ConversationHistory";
+import LeadManagement from "./components/LeadManagement";
+import PricingPlans from "./components/PricingPlans";
 import "./App.css";
 
 function App() {
-    const [token, setToken] = useState(
-        localStorage.getItem("nexbot_token")
-    );
+    const [token, setToken] = useState(localStorage.getItem("nexbot_token"));
 
     const [mode, setMode] = useState("login");
     const [email, setEmail] = useState("");
@@ -22,9 +26,93 @@ function App() {
     const [selectedBusiness, setSelectedBusiness] = useState("");
 
     const [selectedChatbot, setSelectedChatbot] = useState(null);
+    const [knowledgeChatbot, setKnowledgeChatbot] = useState(null);
+
+    const [documents, setDocuments] = useState([]);
+    const [uploading, setUploading] = useState(false);
+    const [loadingDocuments, setLoadingDocuments] = useState(false);
+
+    const [editingChatbot, setEditingChatbot] = useState(null);
+    const [editBotName, setEditBotName] = useState("");
+    const [editWelcomeMessage, setEditWelcomeMessage] = useState("");
+    const [editDescription, setEditDescription] = useState("");
+    const [editActive, setEditActive] = useState(true);
 
     const [message, setMessage] = useState("");
     const [loading, setLoading] = useState(false);
+
+    const [activeSection, setActiveSection] = useState("overview");
+
+    const navigationItems = [
+        { id: "overview", label: "Dashboard", icon: "▦" },
+        { id: "assistants", label: "AI Assistants", icon: "✧" },
+        { id: "knowledge", label: "Knowledge Base", icon: "▤" },
+        { id: "analytics", label: "Analytics", icon: "▥" },
+        { id: "conversations", label: "Conversation History", icon: "◷" },
+        { id: "leads", label: "Leads", icon: "↗" },
+        { id: "pricing", label: "Pricing Plans", icon: "◇" }
+    ];
+
+    function scrollToSection(sectionId) {
+        setActiveSection(sectionId);
+
+        const section = document.getElementById(sectionId);
+
+        if (section) {
+            section.scrollIntoView({
+                behavior: "smooth",
+                block: "start"
+            });
+        }
+    }
+
+    // SIDEBAR SCROLL OBSERVER
+
+    useEffect(() => {
+        if (!token) return;
+
+        const sectionIds = [
+            "overview",
+            "assistants",
+            "knowledge",
+            "analytics",
+            "conversations",
+            "leads",
+            "pricing"
+        ];
+
+        const sections = sectionIds
+            .map(id => document.getElementById(id))
+            .filter(Boolean);
+
+        if (!sections.length) return;
+
+        const observer = new IntersectionObserver(
+            entries => {
+                const visibleSections = entries
+                    .filter(entry => entry.isIntersecting)
+                    .sort(
+                        (a, b) =>
+                            b.intersectionRatio - a.intersectionRatio
+                    );
+
+                if (visibleSections.length) {
+                    setActiveSection(visibleSections[0].target.id);
+                }
+            },
+            {
+                root: null,
+                rootMargin: "-15% 0px -65% 0px",
+                threshold: [0, 0.1, 0.25, 0.5]
+            }
+        );
+
+        sections.forEach(section => observer.observe(section));
+
+        return () => observer.disconnect();
+    }, [token, businesses.length, chatbots.length, knowledgeChatbot]);
+
+    // LOGIN AND REGISTRATION
 
     async function handleAuth(e) {
         e.preventDefault();
@@ -46,6 +134,8 @@ function App() {
         }
     }
 
+    // LOAD DASHBOARD
+
     async function loadDashboard() {
         try {
             const businessData = await API.getBusinesses();
@@ -57,11 +147,19 @@ function App() {
                     : businessData.businesses || []
             );
 
-            setChatbots(
-                Array.isArray(botData)
-                    ? botData
-                    : botData.chatbots || []
-            );
+            const loadedBots = Array.isArray(botData)
+                ? botData
+                : botData.chatbots || [];
+
+            setChatbots(loadedBots);
+
+            setSelectedChatbot(current => {
+                if (!current) return current;
+
+                return loadedBots.find(
+                    bot => Number(bot.id) === Number(current.id)
+                ) || current;
+            });
 
         } catch (error) {
             setMessage(error.message);
@@ -69,10 +167,35 @@ function App() {
     }
 
     useEffect(() => {
-        if (token) {
+        if (token && !window.location.pathname.startsWith("/chat/")) {
             loadDashboard();
         }
     }, [token]);
+
+    // UPDATE CHATBOT AFTER APPEARANCE SAVE
+
+    function handleAppearanceSaved(updatedBot) {
+        if (!updatedBot) {
+            loadDashboard();
+            return;
+        }
+
+        setChatbots(current =>
+            current.map(bot =>
+                Number(bot.id) === Number(updatedBot.id)
+                    ? { ...bot, ...updatedBot }
+                    : bot
+            )
+        );
+
+        setSelectedChatbot(current =>
+            current && Number(current.id) === Number(updatedBot.id)
+                ? { ...current, ...updatedBot }
+                : current
+        );
+    }
+
+    // CREATE BUSINESS
 
     async function createBusiness(e) {
         e.preventDefault();
@@ -80,7 +203,7 @@ function App() {
         try {
             await API.createBusiness({
                 name: businessName,
-                industry: industry,
+                industry: industry
             });
 
             setBusinessName("");
@@ -94,13 +217,15 @@ function App() {
         }
     }
 
+    // CREATE CHATBOT
+
     async function createChatbot(e) {
         e.preventDefault();
 
         try {
             await API.createChatbot({
                 name: botName,
-                business_id: Number(selectedBusiness),
+                business_id: Number(selectedBusiness)
             });
 
             setBotName("");
@@ -113,21 +238,155 @@ function App() {
         }
     }
 
-    async function uploadPDF(e, chatbotId) {
-        const file = e.target.files[0];
+    // EDIT CHATBOT
 
-        if (!file) return;
+    function openEditChatbot(bot) {
+        setEditingChatbot(bot);
+        setEditBotName(bot.name || "");
+
+        setEditWelcomeMessage(
+            bot.welcome_message ||
+            "Hello! How can I help you today?"
+        );
+
+        setEditDescription(bot.description || "");
+        setEditActive(bot.is_active ?? true);
+    }
+
+    async function updateChatbot(e) {
+        e.preventDefault();
 
         try {
-            const result = await API.uploadDocument(chatbotId, file);
-            setMessage(result.message);
+            await API.updateChatbot(editingChatbot.id, {
+                name: editBotName,
+                welcome_message: editWelcomeMessage,
+                description: editDescription,
+                is_active: editActive
+            });
+
+            setMessage("Assistant updated successfully!");
+            setEditingChatbot(null);
+
+            await loadDashboard();
 
         } catch (error) {
             setMessage(error.message);
         }
-
-        e.target.value = "";
     }
+
+    // KNOWLEDGE BASE
+
+    async function openKnowledgeBase(bot) {
+        setKnowledgeChatbot(bot);
+        setDocuments([]);
+        setLoadingDocuments(true);
+
+        scrollToSection("knowledge");
+
+        try {
+            const result = await API.getDocuments(bot.id);
+            setDocuments(result.documents || []);
+
+        } catch (error) {
+            setMessage(error.message);
+        } finally {
+            setLoadingDocuments(false);
+        }
+    }
+
+    async function refreshDocuments() {
+        if (!knowledgeChatbot) return;
+
+        setLoadingDocuments(true);
+
+        try {
+            const result = await API.getDocuments(knowledgeChatbot.id);
+            setDocuments(result.documents || []);
+
+        } catch (error) {
+            setMessage(error.message);
+        } finally {
+            setLoadingDocuments(false);
+        }
+    }
+
+    // UPLOAD PDF DOCUMENTS
+
+    async function uploadPDF(e, chatbotId) {
+        const files = Array.from(e.target.files || []);
+
+        if (!files.length) return;
+
+        const invalidFiles = files.filter(
+            file => !file.name.toLowerCase().endsWith(".pdf")
+        );
+
+        if (invalidFiles.length) {
+            setMessage("Please select PDF files only.");
+            e.target.value = "";
+            return;
+        }
+
+        setUploading(true);
+        setMessage(`Uploading ${files.length} document(s)...`);
+
+        let successful = 0;
+        const errors = [];
+
+        try {
+            for (const file of files) {
+                try {
+                    await API.uploadDocument(chatbotId, file);
+                    successful++;
+                } catch (error) {
+                    errors.push(`${file.name}: ${error.message}`);
+                }
+            }
+
+            if (knowledgeChatbot?.id === chatbotId) {
+                await refreshDocuments();
+            }
+
+            if (errors.length) {
+                setMessage(
+                    `${successful} uploaded successfully. ${errors.length} failed: ${errors.join(" | ")}`
+                );
+            } else {
+                setMessage(
+                    `${successful} PDF document(s) uploaded successfully!`
+                );
+            }
+
+        } finally {
+            setUploading(false);
+            e.target.value = "";
+        }
+    }
+
+    // DELETE PDF
+
+    async function deletePDF(documentId) {
+        const confirmed = window.confirm(
+            "Are you sure you want to delete this document? Its knowledge will also be removed from this chatbot."
+        );
+
+        if (!confirmed) return;
+
+        try {
+            await API.deleteDocument(documentId);
+
+            setDocuments(current =>
+                current.filter(document => document.id !== documentId)
+            );
+
+            setMessage("Document deleted successfully!");
+
+        } catch (error) {
+            setMessage(error.message);
+        }
+    }
+
+    // LOGOUT
 
     function logout() {
         localStorage.removeItem("nexbot_token");
@@ -136,16 +395,26 @@ function App() {
         setBusinesses([]);
         setChatbots([]);
         setSelectedChatbot(null);
+        setKnowledgeChatbot(null);
+        setDocuments([]);
+        setEditingChatbot(null);
         setMessage("");
+        setActiveSection("overview");
     }
+
+    // PUBLIC CHATBOT PAGE
+
+    if (window.location.pathname.startsWith("/chat/")) {
+        return <PublicChatPage />;
+    }
+
+    // LOGIN SCREEN
 
     if (!token) {
         return (
             <div className="auth-page">
                 <div className="auth-card">
-
                     <h1>NexBot<span>.</span></h1>
-
                     <p>Your business. Your AI assistant.</p>
 
                     <h2>
@@ -155,7 +424,6 @@ function App() {
                     </h2>
 
                     <form onSubmit={handleAuth}>
-
                         {mode === "register" && (
                             <input
                                 placeholder="Full name"
@@ -189,7 +457,6 @@ function App() {
                                     ? "Sign In"
                                     : "Create Account"}
                         </button>
-
                     </form>
 
                     <p className="switch-mode">
@@ -216,24 +483,42 @@ function App() {
                     {message && (
                         <p className="notice">{message}</p>
                     )}
-
                 </div>
             </div>
         );
     }
 
+    // MAIN DASHBOARD
+
     return (
         <div className="dashboard">
 
             <aside className="sidebar">
-
                 <h1>NexBot<span>.</span></h1>
-
                 <p className="sidebar-label">WORKSPACE</p>
 
-                <p className="sidebar-item">▦ Dashboard</p>
-                <p className="sidebar-item">✧ AI Assistants</p>
-                <p className="sidebar-item">▤ Knowledge Base</p>
+                <nav className="sidebar-nav">
+                    {navigationItems.map(item => (
+                        <button
+                            key={item.id}
+                            type="button"
+                            className={`sidebar-item ${
+                                activeSection === item.id ? "active" : ""
+                            }`}
+                            onClick={() => scrollToSection(item.id)}
+                            aria-current={
+                                activeSection === item.id
+                                    ? "location"
+                                    : undefined
+                            }
+                        >
+                            <span className="sidebar-icon">
+                                {item.icon}
+                            </span>
+                            {item.label}
+                        </button>
+                    ))}
+                </nav>
 
                 <button
                     className="logout-button"
@@ -241,13 +526,11 @@ function App() {
                 >
                     Sign Out
                 </button>
-
             </aside>
 
             <main className="main-content">
 
                 <header className="topbar">
-
                     <div>
                         <p className="eyebrow">YOUR WORKSPACE</p>
                         <h2>Dashboard</h2>
@@ -256,11 +539,14 @@ function App() {
                     <button onClick={loadDashboard}>
                         Refresh
                     </button>
-
                 </header>
 
-                <section className="welcome-section">
+                {/* OVERVIEW */}
 
+                <section
+                    id="overview"
+                    className="welcome-section dashboard-section"
+                >
                     <div>
                         <p className="eyebrow">WELCOME TO NEXBOT</p>
 
@@ -269,15 +555,15 @@ function App() {
                         </h2>
 
                         <p>
-                            Create AI assistants trained on your own
-                            business information.
+                            Create AI assistants for any industry,
+                            trained using your own business information.
                         </p>
                     </div>
-
                 </section>
 
-                <section className="stats-grid">
+                {/* STATISTICS */}
 
+                <section className="stats-grid">
                     <div className="stat-card">
                         <p>Total Businesses</p>
                         <h2>{businesses.length}</h2>
@@ -289,166 +575,413 @@ function App() {
                     </div>
 
                     <div className="stat-card">
-                        <p>Platform</p>
-                        <h2>AI + ML</h2>
+                        <p>Knowledge Base</p>
+                        <h2>PDF-Powered</h2>
                     </div>
-
                 </section>
 
-                <section className="management-grid">
+                {/* ANALYTICS */}
 
-                    <div className="panel">
+                <section
+                    id="analytics"
+                    className="dashboard-section"
+                >
+                    <AnalyticsDashboard />
+                </section>
 
-                        <h3>Create Business</h3>
-                        <p>Add your business to NexBot.</p>
+                {/* CONVERSATIONS */}
 
-                        <form onSubmit={createBusiness}>
+                <section
+                    id="conversations"
+                    className="dashboard-section"
+                >
+                    <ConversationHistory />
+                </section>
 
-                            <input
-                                placeholder="Business name"
-                                value={businessName}
-                                onChange={e =>
-                                    setBusinessName(e.target.value)
-                                }
-                                required
-                            />
+                {/* AI ASSISTANTS */}
 
-                            <input
-                                placeholder="Industry (e.g. Fashion, Healthcare)"
-                                value={industry}
-                                onChange={e =>
-                                    setIndustry(e.target.value)
-                                }
-                            />
+                <div
+                    id="assistants"
+                    className="dashboard-section"
+                >
+                    <section className="management-grid">
 
-                            <button>Create Business</button>
+                        <div className="panel">
+                            <h3>Create Business</h3>
+                            <p>Add any type of business to NexBot.</p>
 
-                        </form>
+                            <form onSubmit={createBusiness}>
+                                <input
+                                    placeholder="Business name"
+                                    value={businessName}
+                                    onChange={e => setBusinessName(e.target.value)}
+                                    required
+                                />
 
-                    </div>
+                                <input
+                                    placeholder="Industry (e.g. Fashion, Healthcare, Education)"
+                                    value={industry}
+                                    onChange={e => setIndustry(e.target.value)}
+                                />
 
-                    <div className="panel">
+                                <button>Create Business</button>
+                            </form>
+                        </div>
 
-                        <h3>Create AI Assistant</h3>
-                        <p>Build an assistant for your business.</p>
+                        <div className="panel">
+                            <h3>Create AI Assistant</h3>
+                            <p>Build an assistant for your business.</p>
 
-                        <form onSubmit={createChatbot}>
+                            <form onSubmit={createChatbot}>
+                                <input
+                                    placeholder="Assistant name"
+                                    value={botName}
+                                    onChange={e => setBotName(e.target.value)}
+                                    required
+                                />
 
-                            <input
-                                placeholder="Assistant name"
-                                value={botName}
-                                onChange={e =>
-                                    setBotName(e.target.value)
-                                }
-                                required
-                            />
+                                <select
+                                    value={selectedBusiness}
+                                    onChange={e => setSelectedBusiness(e.target.value)}
+                                    required
+                                >
+                                    <option value="">Select business</option>
 
-                            <select
-                                value={selectedBusiness}
-                                onChange={e =>
-                                    setSelectedBusiness(e.target.value)
-                                }
-                                required
-                            >
-                                <option value="">Select business</option>
+                                    {businesses.map(business => (
+                                        <option
+                                            key={business.id}
+                                            value={business.id}
+                                        >
+                                            {business.name}
+                                        </option>
+                                    ))}
+                                </select>
 
-                                {businesses.map(business => (
-                                    <option
-                                        key={business.id}
-                                        value={business.id}
+                                <button disabled={!businesses.length}>
+                                    Create Assistant
+                                </button>
+                            </form>
+                        </div>
+                    </section>
+
+                    {/* ASSISTANT LIST */}
+
+                    <section className="panel assistant-list">
+                        <h3>Your AI Assistants</h3>
+
+                        {chatbots.length === 0 ? (
+                            <p>No assistants created yet.</p>
+                        ) : (
+                            chatbots.map(bot => (
+                                <div
+                                    className="assistant-item"
+                                    key={bot.id}
+                                >
+                                    <div>
+                                        <h4>{bot.name}</h4>
+                                        <p>Assistant ID: {bot.id}</p>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedChatbot(bot);
+                                            setTimeout(
+                                                () => scrollToSection("assistants"),
+                                                100
+                                            );
+                                        }}
                                     >
-                                        {business.name}
-                                    </option>
-                                ))}
+                                        Preview Assistant
+                                    </button>
 
-                            </select>
+                                    <button
+                                        type="button"
+                                        onClick={() => openEditChatbot(bot)}
+                                    >
+                                        Edit Assistant
+                                    </button>
 
-                            <button disabled={!businesses.length}>
-                                Create Assistant
-                            </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => openKnowledgeBase(bot)}
+                                    >
+                                        Manage Knowledge
+                                    </button>
 
-                        </form>
+                                    <label className="upload-button">
+                                        Upload PDFs
 
-                    </div>
+                                        <input
+                                            type="file"
+                                            accept=".pdf,application/pdf"
+                                            multiple
+                                            hidden
+                                            disabled={uploading}
+                                            onChange={e => uploadPDF(e, bot.id)}
+                                        />
+                                    </label>
 
-                </section>
+                                    <ChatbotShare
+                                        chatbotId={bot.id}
+                                        onSaved={handleAppearanceSaved}
+                                    />
+                                </div>
+                            ))
+                        )}
+                    </section>
+                </div>
 
-                <section className="panel assistant-list">
+                {/* KNOWLEDGE BASE */}
 
-                    <h3>Your AI Assistants</h3>
-
-                    {chatbots.length === 0 ? (
-                        <p>No assistants created yet.</p>
-                    ) : (
-
-                        chatbots.map(bot => (
-
-                            <div
-                                className="assistant-item"
-                                key={bot.id}
-                            >
-
+                <section
+                    id="knowledge"
+                    className="panel knowledge-panel dashboard-section"
+                >
+                    {knowledgeChatbot ? (
+                        <>
+                            <div className="knowledge-heading">
                                 <div>
-                                    <h4>{bot.name}</h4>
-                                    <p>Assistant ID: {bot.id}</p>
+                                    <p className="eyebrow">
+                                        KNOWLEDGE MANAGEMENT
+                                    </p>
+
+                                    <h3>{knowledgeChatbot.name}</h3>
+
+                                    <p>
+                                        Manage the PDF documents used by this assistant.
+                                    </p>
                                 </div>
 
                                 <button
                                     type="button"
-                                    onClick={() =>
-                                        setSelectedChatbot(bot)
-                                    }
+                                    onClick={() => setKnowledgeChatbot(null)}
                                 >
-                                    Preview Assistant
+                                    Close
                                 </button>
-
-                                <label className="upload-button">
-
-                                    Upload PDF
-
-                                    <input
-                                        type="file"
-                                        accept=".pdf,application/pdf"
-                                        hidden
-                                        onChange={e =>
-                                            uploadPDF(e, bot.id)
-                                        }
-                                    />
-
-                                </label>
-
                             </div>
 
-                        ))
+                            <label className="upload-button knowledge-upload">
+                                {uploading
+                                    ? "Uploading..."
+                                    : "＋ Upload PDF Documents"}
 
+                                <input
+                                    type="file"
+                                    accept=".pdf,application/pdf"
+                                    multiple
+                                    hidden
+                                    disabled={uploading}
+                                    onChange={e =>
+                                        uploadPDF(e, knowledgeChatbot.id)
+                                    }
+                                />
+                            </label>
+
+                            <p className="knowledge-hint">
+                                You can select multiple PDF files. Each file must be
+                                smaller than 10 MB.
+                            </p>
+
+                            <div className="document-list">
+                                <h4>
+                                    Uploaded Documents ({documents.length})
+                                </h4>
+
+                                {loadingDocuments ? (
+                                    <p>Loading documents...</p>
+                                ) : documents.length === 0 ? (
+                                    <p>
+                                        No documents uploaded yet. Add PDFs to train
+                                        your assistant with business information.
+                                    </p>
+                                ) : (
+                                    documents.map(document => (
+                                        <div
+                                            className="document-item"
+                                            key={document.id}
+                                        >
+                                            <div className="document-info">
+                                                <span className="document-icon">
+                                                    PDF
+                                                </span>
+
+                                                <div>
+                                                    <h4>{document.filename}</h4>
+
+                                                    <p>
+                                                        {document.status} ·
+                                                        {" "}
+                                                        {document.total_chunks}
+                                                        {" "}
+                                                        knowledge sections
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <button
+                                                type="button"
+                                                className="delete-document"
+                                                onClick={() => deletePDF(document.id)}
+                                            >
+                                                Delete
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </>
+                    ) : (
+                        <div>
+                            <p className="eyebrow">KNOWLEDGE MANAGEMENT</p>
+                            <h3>Knowledge Base</h3>
+
+                            <p>
+                                Select an AI assistant to manage its PDF documents
+                                and business knowledge.
+                            </p>
+
+                            {chatbots.length === 0 ? (
+                                <p>
+                                    Create your first AI assistant to get started.
+                                </p>
+                            ) : (
+                                <div className="document-list">
+                                    {chatbots.map(bot => (
+                                        <div
+                                            className="document-item"
+                                            key={bot.id}
+                                        >
+                                            <div className="document-info">
+                                                <span className="document-icon">
+                                                    AI
+                                                </span>
+
+                                                <div>
+                                                    <h4>{bot.name}</h4>
+                                                    <p>Assistant ID: {bot.id}</p>
+                                                </div>
+                                            </div>
+
+                                            <button
+                                                type="button"
+                                                className="upload-button"
+                                                onClick={() => openKnowledgeBase(bot)}
+                                            >
+                                                Manage Documents
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                     )}
-
                 </section>
 
+                {/* LEADS */}
+
+                <section
+                    id="leads"
+                    className="dashboard-section"
+                >
+                    <LeadManagement />
+                </section>
+
+                {/* PRICING PLANS */}
+
+                <section
+                    id="pricing"
+                    className="dashboard-section"
+                >
+                    <PricingPlans />
+                </section>
+
+                {/* CHATBOT EDITING */}
+
+                {editingChatbot && (
+                    <section className="panel chatbot-edit-panel">
+                        <h3>Customise Your Assistant</h3>
+
+                        <p>
+                            Personalise how your chatbot interacts with customers.
+                        </p>
+
+                        <form onSubmit={updateChatbot}>
+                            <label>Assistant Name</label>
+
+                            <input
+                                value={editBotName}
+                                onChange={e => setEditBotName(e.target.value)}
+                                placeholder="Assistant name"
+                                required
+                            />
+
+                            <label>Welcome Message</label>
+
+                            <textarea
+                                value={editWelcomeMessage}
+                                onChange={e => setEditWelcomeMessage(e.target.value)}
+                                placeholder="Welcome your customers..."
+                                required
+                            />
+
+                            <label>Description</label>
+
+                            <textarea
+                                value={editDescription}
+                                onChange={e => setEditDescription(e.target.value)}
+                                placeholder="Describe what this assistant helps customers with..."
+                            />
+
+                            <label className="active-toggle">
+                                <input
+                                    type="checkbox"
+                                    checked={editActive}
+                                    onChange={e => setEditActive(e.target.checked)}
+                                />
+                                Assistant is active
+                            </label>
+
+                            <div className="edit-actions">
+                                <button type="submit">
+                                    Save Changes
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setEditingChatbot(null)}
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </section>
+                )}
+
+                {/* CHATBOT PREVIEW */}
+
                 {selectedChatbot && (
-
                     <section className="panel">
-
                         <h3>Preview Your AI Assistant</h3>
 
                         <ChatWidget
                             chatbotId={selectedChatbot.id}
                             chatbotName={selectedChatbot.name}
-                            welcomeMessage={
-                                selectedChatbot.welcome_message
+                            welcomeMessage={selectedChatbot.welcome_message}
+                            themeColor={
+                                selectedChatbot.theme_color || "#173D32"
                             }
                         />
-
                     </section>
-
                 )}
+
+                {/* NOTIFICATIONS */}
 
                 {message && (
                     <p className="notice">{message}</p>
                 )}
 
             </main>
-
         </div>
     );
 }

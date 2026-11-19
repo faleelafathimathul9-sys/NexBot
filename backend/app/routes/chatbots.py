@@ -1,7 +1,10 @@
+import re
+
 from flask import Blueprint, request, jsonify, g
 from app.extensions import db
 from app.models import Chatbot, Business
 from app.routes.auth import token_required
+
 
 chatbot_bp = Blueprint(
     "chatbots",
@@ -17,9 +20,17 @@ def chatbot_to_dict(chatbot):
         "description": chatbot.description,
         "welcome_message": chatbot.welcome_message,
         "is_active": chatbot.is_active,
+        "theme_color": chatbot.theme_color or "#173D32",
         "business_id": chatbot.business_id,
         "created_at": chatbot.created_at.isoformat()
     }
+
+
+def valid_theme_color(color):
+    return bool(
+        isinstance(color, str)
+        and re.fullmatch(r"#[0-9A-Fa-f]{6}", color)
+    )
 
 
 def get_owned_chatbot(chatbot_id):
@@ -41,17 +52,27 @@ def create_chatbot():
 
     data = request.get_json(silent=True) or {}
 
-    name = data.get("name", "").strip()
+    name = str(data.get("name") or "").strip()
     business_id = data.get("business_id")
-    description = data.get("description", "").strip()
-    welcome_message = data.get(
-        "welcome_message",
-        "Hello! How can I help you today?"
+    description = str(data.get("description") or "").strip()
+
+    welcome_message = str(
+        data.get(
+            "welcome_message",
+            "Hello! How can I help you today?"
+        ) or ""
     ).strip()
+
+    theme_color = data.get("theme_color", "#173D32")
 
     if not name or not business_id:
         return jsonify({
             "error": "Chatbot name and business ID are required"
+        }), 400
+
+    if not valid_theme_color(theme_color):
+        return jsonify({
+            "error": "Please provide a valid hex colour."
         }), 400
 
     business = Business.query.filter_by(
@@ -68,6 +89,7 @@ def create_chatbot():
         name=name,
         description=description,
         welcome_message=welcome_message,
+        theme_color=theme_color,
         business_id=business.id
     )
 
@@ -97,6 +119,34 @@ def get_chatbots():
             chatbot_to_dict(chatbot)
             for chatbot in chatbots
         ]
+    }), 200
+
+
+# PUBLIC CHATBOT DETAILS
+@chatbot_bp.route("/public/<int:chatbot_id>", methods=["GET"])
+def get_public_chatbot(chatbot_id):
+
+    chatbot = (
+        Chatbot.query
+        .join(Business)
+        .filter(Chatbot.id == chatbot_id)
+        .first()
+    )
+
+    if not chatbot or not chatbot.is_active:
+        return jsonify({
+            "error": "This chatbot is unavailable"
+        }), 404
+
+    return jsonify({
+        "chatbot": {
+            "id": chatbot.id,
+            "name": chatbot.name,
+            "description": chatbot.description,
+            "welcome_message": chatbot.welcome_message,
+            "theme_color": chatbot.theme_color or "#173D32",
+            "business_name": chatbot.business.name
+        }
     }), 200
 
 
@@ -132,7 +182,7 @@ def update_chatbot(chatbot_id):
     data = request.get_json(silent=True) or {}
 
     if "name" in data:
-        name = data["name"].strip()
+        name = str(data["name"] or "").strip()
 
         if not name:
             return jsonify({
@@ -142,13 +192,25 @@ def update_chatbot(chatbot_id):
         chatbot.name = name
 
     if "description" in data:
-        chatbot.description = data["description"].strip()
+        chatbot.description = str(data["description"] or "").strip()
 
     if "welcome_message" in data:
-        chatbot.welcome_message = data["welcome_message"].strip()
+        chatbot.welcome_message = str(
+            data["welcome_message"] or ""
+        ).strip()
 
     if "is_active" in data:
         chatbot.is_active = bool(data["is_active"])
+
+    if "theme_color" in data:
+        theme_color = data["theme_color"]
+
+        if not valid_theme_color(theme_color):
+            return jsonify({
+                "error": "Please provide a valid hex colour."
+            }), 400
+
+        chatbot.theme_color = theme_color
 
     db.session.commit()
 

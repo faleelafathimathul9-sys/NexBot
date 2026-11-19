@@ -61,6 +61,15 @@ export const API = {
             body: JSON.stringify(chatbot),
         }),
 
+    updateChatbot: (chatbotId, chatbot) =>
+        apiRequest(`/chatbots/${chatbotId}`, {
+            method: "PUT",
+            body: JSON.stringify(chatbot),
+        }),
+
+    getPublicChatbot: (chatbotId) =>
+        apiRequest(`/chatbots/public/${chatbotId}`),
+
     uploadDocument: (chatbotId, file) => {
         const formData = new FormData();
         formData.append("file", file);
@@ -71,12 +80,48 @@ export const API = {
         });
     },
 
-    sendMessage: (chatbotId, message, sessionId) =>
+    getDocuments: (chatbotId) =>
+        apiRequest(`/documents/chatbots/${chatbotId}`),
+
+    deleteDocument: (documentId) =>
+        apiRequest(`/documents/${documentId}`, {
+            method: "DELETE",
+        }),
+
+    // CHAT WITH LANGUAGE SUPPORT
+    sendMessage: (chatbotId, message, sessionId, language = "en") =>
         apiRequest(`/chat/${chatbotId}`, {
             method: "POST",
             body: JSON.stringify({
                 message,
                 session_id: sessionId,
+                language,
             }),
+        }),
+
+    getAnalytics: () =>
+        apiRequest("/analytics/"),
+
+    // CONVERSATION HISTORY
+    getConversations: () =>
+        apiRequest("/conversations/"),
+
+    getConversationDetails: (conversationId) =>
+        apiRequest(`/conversations/${conversationId}`),
+
+    // SMART LEAD GENERATION
+    createLead: (leadData) =>
+        apiRequest("/leads/", {
+            method: "POST",
+            body: JSON.stringify(leadData),
+        }),
+
+    getLeads: () =>
+        apiRequest("/leads/"),
+
+    updateLeadStatus: (leadId, status) =>
+        apiRequest(`/leads/${leadId}`, {
+            method: "PATCH",
+            body: JSON.stringify({ status }),
         }),
 };
