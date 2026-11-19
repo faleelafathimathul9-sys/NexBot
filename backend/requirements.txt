@@ -1,0 +1,9 @@
+Flask
+Flask-CORS
+Flask-SQLAlchemy
+PyJWT
+pypdf
+scikit-learn
+numpy
+requests
+python-dotenv
