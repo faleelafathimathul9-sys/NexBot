@@ -1,3 +1,4 @@
+import os
 from flask import Flask
 from flask_cors import CORS
 
@@ -11,7 +12,19 @@ def create_app():
 
     app.config.from_object(Config)
 
-    CORS(app)
+    allowed_origins = os.environ.get(
+        "CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173"
+    ).split(",")
+
+    CORS(
+        app,
+        resources={
+            r"/api/*": {
+                "origins": [origin.strip() for origin in allowed_origins]
+            }
+        }
+    )
 
     db.init_app(app)
 
