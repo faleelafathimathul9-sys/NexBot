@@ -46,6 +46,17 @@ class Config:
 
     UPLOAD_FOLDER = str(UPLOAD_DIR)
 
-    DEBUG = os.environ.get("FLASK_DEBUG", "False").lower() == "true"
+    SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    SUPABASE_SERVICE_ROLE_KEY = os.environ.get(
+        "SUPABASE_SERVICE_ROLE_KEY"
+    )
+    SUPABASE_STORAGE_BUCKET = os.environ.get(
+        "SUPABASE_STORAGE_BUCKET",
+        "nexbot-documents"
+    )
+
+    DEBUG = os.environ.get(
+        "FLASK_DEBUG", "False"
+    ).lower() == "true"
 
     JSON_SORT_KEYS = False
