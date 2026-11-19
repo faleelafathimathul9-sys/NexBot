@@ -7,3 +7,5 @@ scikit-learn
 numpy
 requests
 python-dotenv
+gunicorn
+psycopg2-binary
